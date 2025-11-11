@@ -1,17 +1,18 @@
-import logging
-
 from .util import generate_data_path
 from playwright.async_api import async_playwright
 from jinja2.sandbox import SandboxedEnvironment
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 from typing import Literal
+from loguru import logger
+
 
 class FloatRect(TypedDict):
     x: float
     y: float
     width: float
     height: float
+
 
 class ScreenshotOptions(BaseModel):
     """Playwright 截图参数
@@ -36,15 +37,15 @@ class ScreenshotOptions(BaseModel):
     @author: Redlnn(https://github.com/GraiaCommunity/graiax-text2img-playwright)
     """
 
-    timeout: float | None
-    type: Literal["jpeg", "png", None]
-    quality: int | None
-    omit_background: bool | None
-    full_page: bool | None
-    clip: FloatRect | None
-    animations: Literal["allow", "disabled", None]
-    caret: Literal["hide", "initial", None]
-    scale: Literal["css", "device", None]
+    timeout: float | None = None
+    type: Literal["jpeg", "png", None] = None
+    quality: int | None = None
+    omit_background: bool | None = None
+    full_page: bool | None = True
+    clip: FloatRect | None = None
+    animations: Literal["allow", "disabled", None] = None
+    caret: Literal["hide", "initial", None] = None
+    scale: Literal["css", "device", None] = None
 
 
 class Text2ImgRender:
@@ -72,16 +73,17 @@ class Text2ImgRender:
         if self.context is None:
             self.playwright = await async_playwright().start()
             self.browser = await self.playwright.chromium.launch()
-            self.context = await self.browser.new_context()
-        result_path, _ = generate_data_path(suffix="jpeg", namespace="rendered")
+            self.context = await self.browser.new_context(
+                device_scale_factor=1.8,
+            )
 
-        logging.info(f"Rendering {html_file_path}")
-
+        suffix = screenshot_options.type if screenshot_options.type else "png"
+        result_path, _ = generate_data_path(suffix=suffix, namespace="rendered")
         page = await self.context.new_page()
         await page.goto(f"file://{html_file_path}")
         await page.screenshot(path=result_path, **screenshot_options.model_dump())
         await page.close()
 
-        logging.info(f"Rendered {html_file_path} to {result_path}")
+        logger.info(f"Rendered {html_file_path} to {result_path}")
 
         return result_path

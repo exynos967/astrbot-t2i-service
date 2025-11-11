@@ -95,18 +95,20 @@ async def text2img(request: GenerateRequest):
         if request.options
         else ScreenshotOptions(
             timeout=None,
-            type=None,
+            type="png",
             quality=None,
             omit_background=None,
             full_page=True,
             clip=None,
             animations=None,
             caret=None,
-            scale=None,
+            scale="device",
         )
     )
 
     pic = await render.html2pic(abs_path, options)
+
+    media_type = "image/png" if pic.endswith(".png") else "image/jpeg"
 
     if is_json_return:
         return JSONResponse(
@@ -117,7 +119,7 @@ async def text2img(request: GenerateRequest):
             },
         )
     else:
-        return fastapi.responses.FileResponse(pic, media_type="image/jpeg")
+        return fastapi.responses.FileResponse(pic, media_type=media_type)
 
 
 if __name__ == "__main__":
