@@ -59,6 +59,33 @@ class Text2ImgRender:
         self.browser = None
         self.context = None
 
+    async def _ensure_context(self) -> None:
+        """确保 Playwright Browser/Context 可用。
+
+        - 懒加载 playwright 实例和浏览器实例；
+        - 若 context 不存在或已关闭，则重新创建；
+        - 将所有初始化逻辑集中在一处，避免 html2pic 中散落判断。
+        """
+
+        if self.playwright is None:
+            self.playwright = await async_playwright().start()
+
+        if self.browser is None:
+            self.browser = await self.playwright.chromium.launch()
+
+        context_closed = False
+        if self.context is not None:
+            # Playwright 的 BrowserContext 提供 is_closed 方法；为兼容性
+            # 使用 getattr 安全访问，避免未来实现细节变化导致 AttributeError。
+            is_closed = getattr(self.context, "is_closed", None)
+            if callable(is_closed):
+                context_closed = bool(is_closed())
+
+        if self.context is None or context_closed:
+            self.context = await self.browser.new_context(
+                device_scale_factor=1.8,
+            )
+
     async def from_jinja_template(self, template: str, data: dict) -> tuple[str, str]:
         env = SandboxedEnvironment()
         html = env.from_string(template).render(data)
@@ -75,13 +102,7 @@ class Text2ImgRender:
     async def html2pic(
         self, html_file_path: str, screenshot_options: ScreenshotOptions
     ) -> str:
-        if self.context is None:
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch()
-            self.context = await self.browser.new_context(
-                device_scale_factor=1.8,
-            )
-
+        await self._ensure_context()
         suffix = screenshot_options.type if screenshot_options.type else "png"
         result_path, _ = generate_data_path(suffix=suffix, namespace="rendered")
         page = await self.context.new_page()
@@ -111,13 +132,16 @@ class Text2ImgRender:
                 f"html2pic: set viewport width to {viewport_width}"
             )
 
-        await page.goto(f"file://{html_file_path}")
-        # ScreenshotOptions 中的 viewport_width 仅用于内部控制 viewport，
-        # 不应透传给 Playwright.screenshot，以免出现未知参数错误。
-        screenshot_kwargs = screenshot_options.model_dump(exclude_none=True)
-        screenshot_kwargs.pop("viewport_width", None)
-        await page.screenshot(path=result_path, **screenshot_kwargs)
-        await page.close()
+        try:
+            await page.goto(f"file://{html_file_path}")
+            # ScreenshotOptions 中的 viewport_width 仅用于内部控制 viewport，
+            # 不透传给 Playwright.screenshot，以免出现未知参数错误。
+            screenshot_kwargs = screenshot_options.model_dump(exclude_none=True)
+            screenshot_kwargs.pop("viewport_width", None)
+            await page.screenshot(path=result_path, **screenshot_kwargs)
+        finally:
+            # 确保在异常情况下也能关闭 page，避免资源泄漏。
+            await page.close()
 
         logger.info(f"Rendered {html_file_path} to {result_path}")
 
