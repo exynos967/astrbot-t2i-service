@@ -94,12 +94,14 @@ class Text2ImgRender:
                 with open(html_file_path, "r", encoding="utf-8") as f:
                     # 只读前几 KB 即可命中 <head> 区域
                     head_snippet = f.read(4096)
-                m = re.search(
-                    r'content="width=(\d+),\s*initial-scale=1.0"', head_snippet
+
+                pattern = (
+                    r'<meta\s+[^>]*name=["\']viewport["\'][^>]*'
+                    r'content=["\'][^"\']*width\s*=\s*(\d+)[^"\']*["\'][^>]*>'
                 )
-                if m:
-                    viewport_width = int(m.group(1))
-            except Exception as e:
+                if m := re.search(pattern, head_snippet, re.IGNORECASE):
+                    viewport_width = int(m[1])
+            except (OSError, UnicodeDecodeError, re.error, ValueError) as e:
                 logger.debug(f"Adjust viewport from meta tag failed: {e}")
 
         if viewport_width is not None:
